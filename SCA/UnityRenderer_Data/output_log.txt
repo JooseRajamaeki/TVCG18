@@ -1,0 +1,30 @@
+Initialize engine version: 5.3.7f1 (c347874230fb)
+GfxDevice: creating device client; threaded=1
+Direct3D:
+    Version:  Direct3D 11.0 [level 11.0]
+    Renderer: NVIDIA Quadro K2000 (ID=0xffe)
+    Vendor:   NVIDIA
+    VRAM:     2018 MB
+Begin MonoManager ReloadAssembly
+Platform assembly: D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\UnityEngine.dll (this message is harmless)
+Loading D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\UnityEngine.dll into Unity Child Domain
+Platform assembly: D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\Assembly-CSharp-firstpass.dll (this message is harmless)
+Loading D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\Assembly-CSharp-firstpass.dll into Unity Child Domain
+Platform assembly: D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\Assembly-CSharp.dll (this message is harmless)
+Loading D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\Assembly-CSharp.dll into Unity Child Domain
+Platform assembly: D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\UnityEngine.UI.dll (this message is harmless)
+Loading D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\UnityEngine.UI.dll into Unity Child Domain
+Platform assembly: D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\UnityEngine.Networking.dll (this message is harmless)
+Loading D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\UnityEngine.Networking.dll into Unity Child Domain
+- Completed reload, in  0.047 seconds
+Platform assembly: D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\System.Core.dll (this message is harmless)
+Platform assembly: D:\joose\tvcg2017\codes\distribution_neural_net\SCA\UnityRenderer_Data\Managed\System.dll (this message is harmless)
+desktop: 1920x1200 59Hz; virtual: 1920x1200 at 0,0
+<RI> Initializing input.
+XInput1_3.dll not found. Trying XInput9_1_0.dll instead...
+<RI> Input initialized.
+<RI> Initialized touch support.
+UnloadTime: 0.438210 ms
+Setting up 2 worker threads for Enlighten.
+  Thread -> id: 13f4 -> priority: 1 
+  Thread -> id: 28a8 -> priority: 1 

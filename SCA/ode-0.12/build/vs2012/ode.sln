@@ -1,0 +1,38 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 2012
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ode", "ode.vcxproj", "{D4AB940E-3762-594D-84C1-645DAD8AEDFB}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		DebugDoubleDLL|Win32 = DebugDoubleDLL|Win32
+		DebugDoubleLib|Win32 = DebugDoubleLib|Win32
+		DebugSingleDLL|Win32 = DebugSingleDLL|Win32
+		DebugSingleLib|Win32 = DebugSingleLib|Win32
+		ReleaseDoubleDLL|Win32 = ReleaseDoubleDLL|Win32
+		ReleaseDoubleLib|Win32 = ReleaseDoubleLib|Win32
+		ReleaseSingleDLL|Win32 = ReleaseSingleDLL|Win32
+		ReleaseSingleLib|Win32 = ReleaseSingleLib|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.DebugDoubleDLL|Win32.ActiveCfg = DebugDoubleDLL|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.DebugDoubleDLL|Win32.Build.0 = DebugDoubleDLL|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.DebugDoubleLib|Win32.ActiveCfg = DebugDoubleLib|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.DebugDoubleLib|Win32.Build.0 = DebugDoubleLib|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.DebugSingleDLL|Win32.ActiveCfg = DebugSingleDLL|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.DebugSingleDLL|Win32.Build.0 = DebugSingleDLL|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.DebugSingleLib|Win32.ActiveCfg = DebugSingleLib|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.DebugSingleLib|Win32.Build.0 = DebugSingleLib|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.ReleaseDoubleDLL|Win32.ActiveCfg = ReleaseDoubleDLL|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.ReleaseDoubleDLL|Win32.Build.0 = ReleaseDoubleDLL|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.ReleaseDoubleLib|Win32.ActiveCfg = ReleaseDoubleLib|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.ReleaseDoubleLib|Win32.Build.0 = ReleaseDoubleLib|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.ReleaseSingleDLL|Win32.ActiveCfg = ReleaseSingleDLL|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.ReleaseSingleDLL|Win32.Build.0 = ReleaseSingleDLL|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.ReleaseSingleLib|Win32.ActiveCfg = ReleaseSingleLib|Win32
+		{D4AB940E-3762-594D-84C1-645DAD8AEDFB}.ReleaseSingleLib|Win32.Build.0 = ReleaseSingleLib|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

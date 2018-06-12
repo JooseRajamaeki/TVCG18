@@ -1,0 +1,1104 @@
+Index: include/ode/common.h
+===================================================================
+--- include/ode/common.h	(revision 1899)
++++ include/ode/common.h	(working copy)
+@@ -110,6 +110,7 @@
+ #define dCos(x) (cosf(x))				/* cosine */
+ #define dFabs(x) (fabsf(x))			/* absolute value */
+ #define dAtan2(y,x) (atan2f(y,x))		/* arc tangent with 2 args */
++#define dAcos(x) (acosf(x))
+ #define dFMod(a,b) (fmodf(a,b))		/* modulo */
+ #define dFloor(x) floorf(x)			/* floor */
+ #define dCeil(x) ceilf(x)			/* ceil */
+@@ -145,6 +146,7 @@
+ #define dCos(x) cos(x)
+ #define dFabs(x) fabs(x)
+ #define dAtan2(y,x) atan2((y),(x))
++#define dAcos(x) acos(x)
+ #define dFMod(a,b) (fmod((a),(b)))
+ #define dFloor(x) floor(x)
+ #define dCeil(x) ceil(x)
+@@ -255,6 +257,8 @@
+   dParamLoStop = start, \
+   dParamHiStop, \
+   dParamVel, \
++  dParamLoVel, \
++  dParamHiVel, \
+   dParamFMax, \
+   dParamFudgeFactor, \
+   dParamBounce, \
+@@ -280,6 +284,8 @@
+   dParamLoStop ## x = start, \
+   dParamHiStop ## x, \
+   dParamVel ## x, \
++  dParamLoVel ## x, \
++  dParamHiVel ## x, \
+   dParamFMax ## x, \
+   dParamFudgeFactor ## x, \
+   dParamBounce ## x, \
+Index: ode/src/export-dif.cpp
+===================================================================
+--- ode/src/export-dif.cpp	(revision 1899)
++++ ode/src/export-dif.cpp	(working copy)
+@@ -163,7 +163,9 @@
+         c.print ("motor = {");
+     }
+     c.indent++;
+-    c.printNonzero ("vel",limot.vel);
++    //c.printNonzero ("vel",limot.vel);
++    c.printNonzero ("lo_vel",limot.lo_vel);
++    c.printNonzero ("hi_vel",limot.hi_vel);
+     c.printNonzero ("fmax",limot.fmax);
+     c.print ("ODE = {");
+     c.indent++;
+Index: ode/src/joints/amotor.cpp
+===================================================================
+--- ode/src/joints/amotor.cpp	(revision 1899)
++++ ode/src/joints/amotor.cpp	(working copy)
+@@ -184,7 +184,10 @@
+ void 
+ dxJointAMotor::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = num;
++    info->max_m = 0;
++    for (int i=0;i<num;++i) {
++      info->max_m += limot[i].countSureMaxRows();
++    }
+ }
+ 
+ 
+@@ -205,11 +208,9 @@
+     // see if we're powered or at a joint limit for each axis
+     for ( int i = 0; i < num; i++ )
+     {
+-        if ( limot[i].testRotationalLimit( angle[i] ) ||
+-            limot[i].fmax > 0 )
+-        {
+-            info->m++;
+-        }
++      limot[i].testRotationalLimit( angle[i] );
++      info->m += limot[i].countRows();
++      info->nub += limot[i].countUBRows();
+     }
+ }
+ 
+@@ -256,7 +257,7 @@
+     int row = 0;
+     for ( i = 0; i < num; i++ )
+     {
+-        row += limot[i].addLimot( this, info, row, *( axptr[i] ), 1 );
++        row += limot[i].addRotationalLimot( this, info, *( axptr[i] ), row );
+     }
+ }
+ 
+@@ -342,7 +343,7 @@
+     if ( joint->mode == dAMotorUser )
+     {
+         if ( anum < 0 ) anum = 0;
+-        if ( anum > 3 ) anum = 3;
++        if ( anum > 2 ) anum = 2;
+         joint->angle[anum] = angle;
+     }
+ }
+@@ -438,7 +439,7 @@
+     dAASSERT( joint && anum >= 0 && anum < 3 );
+     checktype( joint, AMotor );
+     if ( anum < 0 ) anum = 0;
+-    if ( anum > 3 ) anum = 3;
++    if ( anum > 2 ) anum = 2;
+     return joint->angle[anum];
+ }
+ 
+Index: ode/src/joints/hinge.cpp
+===================================================================
+--- ode/src/joints/hinge.cpp	(revision 1899)
++++ ode/src/joints/hinge.cpp	(working copy)
+@@ -47,7 +47,7 @@
+ void 
+ dxJointHinge::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = 6;
++  info->max_m = 5 + limot.countSureMaxRows();
+ }
+ 
+ 
+@@ -55,22 +55,20 @@
+ dxJointHinge::getInfo1( dxJoint::Info1 *info )
+ {
+     info->nub = 5;
+-
+-    // see if joint is powered
+-    if ( limot.fmax > 0 )
+-        info->m = 6; // powered hinge needs an extra constraint row
+-    else info->m = 5;
+-
++    info->m = 5;
++    
+     // see if we're at a joint limit.
++    limot.limit=0;
+     if (( limot.lostop >= -M_PI || limot.histop <= M_PI ) &&
+         limot.lostop <= limot.histop )
+     {
+         dReal angle = getHingeAngle( node[0].body,
+             node[1].body,
+             axis1, qrel );
+-        if ( limot.testRotationalLimit( angle ) )
+-            info->m = 6;
++        limot.testRotationalLimit( angle );
+     }
++    info->m += limot.countRows();
++    info->nub += limot.countUBRows();
+ }
+ 
+ 
+@@ -146,7 +144,8 @@
+     info->c[4] = k * dCalcVectorDot3( b, q );
+ 
+     // if the hinge is powered, or has joint limits, add in the stuff
+-    limot.addLimot( this, info, 5, ax1, 1 );
++    //limot.addLimot( this, info, 5, ax1, 1 );
++    limot.addRotationalLimot( this, info, ax1, 5 );
+ }
+ 
+ 
+Index: ode/src/joints/hinge2.cpp
+===================================================================
+--- ode/src/joints/hinge2.cpp	(revision 1899)
++++ ode/src/joints/hinge2.cpp	(working copy)
+@@ -74,7 +74,7 @@
+ void 
+ dxJointHinge2::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = 6;
++  info->max_m = 4 + limot1.countSureMaxRows() + limot2.countSureMaxRows();
+ }
+ 
+ 
+@@ -92,11 +92,12 @@
+         dReal angle = measureAngle();
+         limot1.testRotationalLimit( angle );
+     }
+-    if ( limot1.limit || limot1.fmax > 0 ) info->m++;
++    info->m += limot1.countRows();
++    info->nub+= limot1.countUBRows();
+ 
+     // see if we're powering axis 2 (we currently never limit this axis)
+-    limot2.limit = 0;
+-    if ( limot2.fmax > 0 ) info->m++;
++    info->m+=limot2.countRows();
++    info->nub+=limot2.countUBRows();
+ }
+ 
+ 
+@@ -171,10 +172,10 @@
+     info->c[3] = k * ( c0 * s - joint->s0 * c );
+ 
+     // if the axis1 hinge is powered, or has joint limits, add in more stuff
+-    int row = 4 + limot1.addLimot( this, info, 4, ax1, 1 );
++    int row = 4 + limot1.addRotationalLimot( this, info, ax1, 4 );
+ 
+     // if the axis2 hinge is powered, add in more stuff
+-    limot2.addLimot( this, info, row, ax2, 1 );
++    limot2.addRotationalLimot( this, info, ax2, row );
+ 
+     // set parameter for the suspension
+     info->cfm[0] = susp_cfm;
+Index: ode/src/joints/joint.cpp
+===================================================================
+--- ode/src/joints/joint.cpp	(revision 1899)
++++ ode/src/joints/joint.cpp	(working copy)
+@@ -473,7 +473,7 @@
+ 
+ void dxJointLimitMotor::init( dxWorld *world )
+ {
+-    vel = 0;
++    lo_vel = hi_vel = 0;
+     fmax = 0;
+     lostop = -dInfinity;
+     histop = dInfinity;
+@@ -498,13 +498,26 @@
+         histop = value;
+         break;
+     case dParamVel:
+-        vel = value;
++        lo_vel = hi_vel = value;
+         break;
++    // If hiVel!=loVel, we'll use two motor rows
++    // One row uses fmax to slow down to hiVel
++    // One row uses fmax to speed up to loVel
++    case dParamLoVel:
++        lo_vel = value;
++        break;
++    case dParamHiVel:
++        hi_vel = value;
++        break;
+     case dParamFMax:
+         if ( value >= 0 ) fmax = value;
+         break;
++    //Setting fudge_factor<0 can be used to disable the
++    // fudge_factor entirely, using, instead, an extra row
++    // when it's needed
+     case dParamFudgeFactor:
+-        if ( value >= 0 && value <= 1 ) fudge_factor = value;
++        //if ( value >= 0 && value <= 1 ) fudge_factor = value;
++        if ( value <= 1 ) fudge_factor = value;
+         break;
+     case dParamBounce:
+         bounce = value;
+@@ -531,7 +544,10 @@
+     case dParamHiStop:
+         return histop;
+     case dParamVel:
+-        return vel;
++    case dParamLoVel:
++        return lo_vel;
++    case dParamHiVel:
++        return hi_vel;
+     case dParamFMax:
+         return fmax;
+     case dParamFudgeFactor:
+@@ -549,6 +565,14 @@
+     }
+ }
+ 
++int dxJointLimitMotor::isActive()
++{
++	return ( (fmax>0) || // It's a motor
++		((lostop<=histop) && // It's a limit
++		 ((lostop!=-dInfinity) ||
++		  (histop!=dInfinity))
++		));
++}
+ 
+ int dxJointLimitMotor::testRotationalLimit( dReal angle )
+ {
+@@ -633,7 +657,7 @@
+             info->cfm[row] = normal_cfm;
+             if ( ! limit )
+             {
+-                info->c[row] = vel;
++                info->c[row] = lo_vel;
+                 info->lo[row] = -fmax;
+                 info->hi[row] = fmax;
+             }
+@@ -649,10 +673,10 @@
+                 // a fudge factor.
+ 
+                 dReal fm = fmax;
+-                if (( vel > 0 ) || ( vel == 0 && limit == 2 ) ) fm = -fm;
++                if (( lo_vel > 0 ) || ( lo_vel == 0 && limit == 2 ) ) fm = -fm;
+ 
+                 // if we're powering away from the limit, apply the fudge factor
+-                if (( limit == 1 && vel > 0 ) || ( limit == 2 && vel < 0 ) ) fm *= fudge_factor;
++                if (( limit == 1 && lo_vel > 0 ) || ( limit == 2 && lo_vel < 0 ) ) fm *= fudge_factor;
+ 
+                 if ( rotational )
+                 {
+@@ -751,8 +775,322 @@
+     else return 0;
+ }
+ 
++/**
++  This function does the generic limit-motor stuff after
++  the LHS has been set.
++*/
++int dxJointLimitMotor::finishLimot(dxJoint *joint, dxJoint::Info2 *info, int row)
++{
++  int rr=0;
++  if (limit) {
++    // We have an active limit.  Set the right hand side.
++    setLimitRHS(joint,info,row);
++    rr+=1; 
++  }
++  if (fmax>0) {
++    // We have an active motor,
++    // If there's no limit or fudge_factor is disabled,
++    // it gets its own row.
++    if (!limit || fudge_factor<0 || hi_vel!=lo_vel) {
++      if (rr>0) { // We've already added a row, copy the data.
++        copyLHS(info,row,row+rr);
++      }
++      if (hi_vel!=lo_vel) {
++        // The motor velocity targets a range; 
++        // so it gets two rows.
++        setLoMotorRHS(info,row+rr);
++        rr+=1;
++        copyLHS(info,row,row+rr);
++        setHiMotorRHS(info,row+rr);
++        rr+=1; 
++      } else {
++        setMotorRHS(info,row+rr);
++        rr+=1; 
++      }
++    } 
++    if (limit && fudge_factor>=0 && hi_vel==lo_vel) {
++      applyMotorFudgeForce(joint,info,row);
++    }
++  }
++  return rr;
++}
+ 
++/**
++  Set the angular LHS and then finish up.
++*/
++int dxJointLimitMotor::addRotationalLimot(dxJoint *joint, dxJoint::Info2 *info,
++                           const dVector3 ax, int row )
++{
++  if (fmax<=0 && !limit) return 0;
++  setAngularLHS(joint,info,ax,row);
++  return finishLimot(joint,info,row);
++}
++/**
++  Find the torque decoupling if necessary
++  and then set the LHS and finish up.
++*/
++int dxJointLimitMotor::addLinearLimot(dxJoint *joint, dxJoint::Info2 *info,
++                       const dVector3 ax, int row )
++{
++  // linear limot torque decoupling step:
++  //
++  // if this is a linear limot (e.g. from a slider), we have to be careful
++  // that the linear constraint forces (+/- ax1) applied to the two bodies
++  // do not create a torque couple. in other words, the points that the
++  // constraint force is applied at must lie along the same ax1 axis.
++  // a torque couple will result in powered or limited slider-jointed free
++  // bodies from gaining angular momentum.
++  // the solution used here is to apply the constraint forces at the point
++  // halfway between the body centers. there is no penalty (other than an
++  // extra tiny bit of computation) in doing this adjustment. note that we
++  // only need to do this if the constraint connects two bodies.
++  dVector3 pt1 = {0,0,0};
++  dVector3 pt2 = {0,0,0};
++  if (fmax<=0 && !limit) return 0;
++  if ( joint->node[1].body ) {
++    pt1[0] = REAL( 0.5 ) * ( joint->node[1].body->posr.pos[0] - joint->node[0].body->posr.pos[0] );
++    pt1[1] = REAL( 0.5 ) * ( joint->node[1].body->posr.pos[1] - joint->node[0].body->posr.pos[1] );
++    pt1[2] = REAL( 0.5 ) * ( joint->node[1].body->posr.pos[2] - joint->node[0].body->posr.pos[2] );
++    dCopyNegatedVector3(pt2,pt1);
++  }
++  return addPointLinearLimot(joint,info,pt1,pt2,ax,row);
++}
+ 
++/**
++  Do the cross products that set the LHS
++  and then finish up.
++*/
++int dxJointLimitMotor::addPointLinearLimot( dxJoint *joint,
++                dxJoint::Info2 *info,
++                        const dVector3 pt1, const dVector3 pt2,
++                        const dVector3 ax, int row )
++{
++  if (fmax<=0 && !limit) return 0;
++  setPointLinearLHS(joint,info,pt1,pt2,ax,row);
++  return finishLimot(joint,info,row);
++}
++
++
++void dxJointLimitMotor::copyLHS(dxJoint::Info2 *info,int fromRow,int toRow)
++{
++  int ssFrom = info->rowskip*fromRow;
++  int ssTo   = info->rowskip*toRow;
++  dCopyVector3(&(info->J1l[ssTo]),&(info->J1l[ssFrom]));
++  dCopyVector3(&(info->J1a[ssTo]),&(info->J1a[ssFrom]));
++  dCopyVector3(&(info->J2l[ssTo]),&(info->J2l[ssFrom]));
++  dCopyVector3(&(info->J2a[ssTo]),&(info->J2a[ssFrom]));
++}
++
++void dxJointLimitMotor::setPointLinearLHS(dxJoint *joint,dxJoint::Info2 *info,
++                        const dVector3 pt1, const dVector3 pt2,
++                        const dVector3 ax, int row )
++{
++    int ss = info->rowskip*row;
++
++    // Set the linear portion
++    dCopyVector3(&(info->J1l[ss]),ax);
++    // Set the angular portion (to move the linear constraint 
++    // away from the center of mass).  
++    dCalcVectorCross3(&(info->J1a[ss]),pt1,ax);
++    // Set the constraints for the second body
++    if ( joint->node[1].body ) {
++        dCopyNegatedVector3(&(info->J2l[ss]), ax);
++        dCalcVectorCross3(&(info->J2a[ss]),pt2,&(info->J2l[ss]));
++    }
++}
++
++void dxJointLimitMotor::setAngularLHS(dxJoint *joint,dxJoint::Info2 *info,
++                        const dVector3 ax, int row )
++{
++  int ss = info->rowskip*row;
++  
++  dCopyVector3(&(info->J1a[ss]),ax);
++  if ( joint->node[1].body ) {
++      dCopyNegatedVector3(&(info->J2a[ss]),ax);
++  }
++}
++
++/**
++  Using the error computed in testRotationalLimit(), we
++  set the correcting velocity for the constraint.
++  If bounce is enabled, we use the LHS values to find
++  the current velocity along this degree of freedom
++  and compute the bounce velocity.
++  We also set the CFM and LCP force limits.
++*/
++void dxJointLimitMotor::setLimitRHS(dxJoint *joint,dxJoint::Info2 *info,int row)
++{
++  int srow = row * info->rowskip;
++
++  dReal k = info->fps * stop_erp;
++  info->c[row] = -k * limit_err;
++  info->cfm[row] = stop_cfm;
++
++  if ( lostop == histop )	{
++      // if limited low and high simultaneously,
++      // this is a 'UB' constraint. 
++      // Bounce is not taken into consideration.
++      info->lo[row] = -dInfinity;
++      info->hi[row] = dInfinity;
++  } else {
++      // We're at one limit or the other, but not both.
++      // So we need to find the direction.
++      if ( limit == 1 ) {
++          // low limit
++          info->lo[row] = 0;
++          info->hi[row] = dInfinity;
++      } else {
++          // high limit
++          info->lo[row] = -dInfinity;
++          info->hi[row] = 0;
++      }
++
++  // deal with bounce
++  	if ( bounce > 0 ) {
++  		// calculate joint velocity
++  		dReal vel = 
++  			dCalcVectorDot3( joint->node[0].body->lvel, &(info->J1l[srow])) +
++  			dCalcVectorDot3( joint->node[0].body->avel, &(info->J1a[srow]));
++  		if (joint->node[1].body) {
++  			vel +=
++  				dCalcVectorDot3( joint->node[1].body->lvel, &(info->J2l[srow])) +
++  				dCalcVectorDot3( joint->node[1].body->avel, &(info->J2a[srow]));
++  		}
++
++  		// only apply bounce if the velocity is incoming, and if the
++  		// resulting c[] exceeds what we already have.
++  		if ( limit == 1 ) {
++  			// low limit
++  			if ( vel < 0 ) {
++  				dReal newc = -bounce * vel;
++  				if ( newc > info->c[row] ) info->c[row] = newc;
++  			}
++  		} else {
++  			// high limit - all those computations are reversed
++  			if ( vel > 0 ) {
++  				dReal newc = -bounce * vel;
++  				if ( newc < info->c[row] ) info->c[row] = newc;
++  			}
++  		}
++  	}
++  }
++}
++
++/**
++	Simple and straight-forward.
++  Use up to fmax force/torque to 
++  speed-up/slow-down the bodies.
++*/
++void dxJointLimitMotor::setMotorRHS(dxJoint::Info2 *info,int row)
++{
++    info->cfm[row] = normal_cfm;
++    info->c[row] =  lo_vel;
++    info->lo[row] = -fmax;
++    info->hi[row] = fmax;
++}
++
++/* Speed it up as needed.  Don't slow it down.*/
++void dxJointLimitMotor::setLoMotorRHS(dxJoint::Info2 *info,int row)
++{
++    info->cfm[row] = normal_cfm;
++    info->c[row] =  lo_vel;
++    info->lo[row] = 0;
++    info->hi[row] = fmax;
++}
++
++/* Slow it down as needed.  Don't speed it up. */
++void dxJointLimitMotor::setHiMotorRHS(dxJoint::Info2 *info,int row)
++{
++    info->cfm[row] = normal_cfm;
++    info->c[row] =  hi_vel;
++    info->lo[row] = -fmax;
++    info->hi[row] = 0;
++}
++
++/**
++  If we're applying this function, we assume that lo_vel==hi_vel
++  and that a limit constraint has already been set in the 
++  specified row.
++*/
++void dxJointLimitMotor::applyMotorFudgeForce(dxJoint *joint,dxJoint::Info2 *info,int row)
++{
++  int srow = row * info->rowskip;
++  dReal fm = (( lo_vel > 0 ) || ( lo_vel == 0 && limit == 2 ) )?-fmax:fmax;
++  // if we're powering away from the limit, apply the fudge factor
++  if (( limit == 1 && lo_vel > 0 ) || ( limit == 2 && lo_vel < 0 ) ) fm *= fudge_factor;
++  
++  dReal* lf = &(info->J1l[srow]);
++  dReal* af = &(info->J1a[srow]);
++
++  dBodyAddForce(joint->node[0].body,lf[0]*fm,lf[1]*fm,lf[2]*fm);
++  dBodyAddTorque(joint->node[0].body,af[0]*fm,af[1]*fm,af[2]*fm);
++  if (joint->node[1].body) {
++    lf = &(info->J2l[srow]);
++    af = &(info->J2a[srow]);
++    dBodyAddForce(joint->node[1].body,lf[0]*fm,lf[1]*fm,lf[2]*fm);
++    dBodyAddTorque(joint->node[1].body,af[0]*fm,af[1]*fm,af[2]*fm);
++  }
++}
++
++/** 
++  We can quickly determine about how many rows we'll
++  use.  We're not sure about the the limits.
++  This information might change comparatively rarely.
++  Perhaps it should be cached.
++*/
++int dxJointLimitMotor::countSureMaxRows()
++{
++  int rr=0;
++
++  if (fmax>0) { // The motor is active
++    if (lo_vel!=hi_vel) { // We are using a velocity range.
++      if (lostop!=-dInfinity || histop!=dInfinity) { // There might be an active limit
++        rr = 3; // 2 motor rows and a limit row
++      } else {
++        rr = 2; // 2 motor rows
++      }
++    } else if (fudge_factor<0 &&
++      (lostop!=-dInfinity || histop!=dInfinity)) 
++    {
++      rr = 2; // 1 motor row, 1 limit row
++    } else {
++      rr = 1; // 1 motor/limit row (possible fudge factor use)
++    }
++  } else if (lostop!=-dInfinity || histop!=dInfinity) {
++    rr = 1; // 1 limit row but no motors
++  }
++  return rr;
++}
++
++int dxJointLimitMotor::countRows()
++{
++  int rr=0;
++  if (fmax>0) { // The motor is active
++    if (lo_vel!=hi_vel) { // We are using a velocity range.
++      if (limit) { // There is an active limit
++        rr = 3; // 2 motor rows and a limit row
++      } else {
++        rr = 2; // 2 motor rows
++      }
++    } else if (fudge_factor<0 && limit) {
++      rr = 2; // 1 motor row, 1 limit row
++    } else {
++      rr = 1; // 1 motor/limit row (possible fudge factor use)
++    }
++  } else if (limit) {
++    rr = 1; // 1 limit row but no motors
++  }
++  return rr;
++}
++
++int dxJointLimitMotor::countUBRows()
++{
++    int rr=0;
++    if (lostop==histop) rr+=1;
++    if (fmax==dInfinity && lo_vel==hi_vel) rr+=1;
++    return rr;
++}
++
+ // Local Variables:
+ // mode:c++
+ // c-basic-offset:4
+Index: ode/src/joints/joint.h
+===================================================================
+--- ode/src/joints/joint.h	(revision 1899)
++++ ode/src/joints/joint.h	(working copy)
+@@ -193,7 +193,7 @@
+ // common limit and motor information for a single joint axis of movement
+ struct dxJointLimitMotor
+ {
+-    dReal vel, fmax;        // powered joint: velocity, max force
++    dReal lo_vel, hi_vel, fmax;  // powered joint: velocity, max force
+     dReal lostop, histop;   // joint limits, relative to initial position
+     dReal fudge_factor;     // when powering away from joint limits
+     dReal normal_cfm;       // cfm to use when not at a stop
+@@ -206,9 +206,43 @@
+     void init( dxWorld * );
+     void set( int num, dReal value );
+     dReal get( int num );
++
++    int isActive();
++
+     int testRotationalLimit( dReal angle );
+     int addLimot( dxJoint *joint, dxJoint::Info2 *info, int row,
+         const dVector3 ax1, int rotational );
++    int finishLimot(dxJoint *joint, dxJoint::Info2 *info, int row);
++
++    int addRotationalLimot(dxJoint *joint, dxJoint::Info2 *info,
++                           const dVector3 ax, int row );
++    int addLinearLimot(dxJoint *joint, dxJoint::Info2 *info,
++                       const dVector3 ax, int row );
++    int addPointLinearLimot( dxJoint *joint,
++                        dxJoint::Info2 *info,
++                        const dVector3 pt1, const dVector3 pt2,
++                        const dVector3 ax, int row );
++    void copyLHS(dxJoint::Info2 *info,int fromRow,int toRow);
++    void setLinearLHS(dxJoint *joint,dxJoint::Info2 *info,
++                        const dVector3 ax, int row );
++    void setPointLinearLHS(dxJoint *joint,dxJoint::Info2 *info,
++         const dVector3 pt1, const dVector3 pt2,
++         const dVector3 ax, int row );
++    void setAngularLHS(dxJoint *joint,dxJoint::Info2 *info,
++                        const dVector3 ax, int row );
++    /// This function assumes that the LHS is already set!
++    /// It uses that to compute the bounce velocity if needed.
++    void setLimitRHS(dxJoint *joint,dxJoint::Info2 *info,int row);
++    void setMotorRHS(dxJoint::Info2 *info,int row);
++    void setLoMotorRHS(dxJoint::Info2 *info,int row);
++    void setHiMotorRHS(dxJoint::Info2 *info,int row);
++    /// This also assumes that the LHS is already set
++    /// and applies the force along the jacobian
++    void applyMotorFudgeForce(dxJoint *joint,dxJoint::Info2 *info,int row);
++
++    int countSureMaxRows();
++    int countRows();
++    int countUBRows();
+ };
+ 
+ 
+Index: ode/src/joints/lmotor.cpp
+===================================================================
+--- ode/src/joints/lmotor.cpp	(revision 1899)
++++ ode/src/joints/lmotor.cpp	(working copy)
+@@ -69,7 +69,11 @@
+ void 
+ dxJointLMotor::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = num;
++    info->max_m = 0;
++    for ( int i = 0; i < num; i++ )
++    {
++      info->max_m += limot[i].countSureMaxRows();
++    }
+ }
+ 
+ void
+@@ -79,10 +83,8 @@
+     info->nub = 0;
+     for ( int i = 0; i < num; i++ )
+     {
+-        if ( limot[i].fmax > 0 )
+-        {
+-            info->m++;
+-        }
++      info->m+=limot[i].countRows();
++      info->nub+=limot[i].countUBRows();
+     }
+ }
+ 
+@@ -95,7 +97,7 @@
+ 
+     for ( int i = 0;i < num;i++ )
+     {
+-        row += limot[i].addLimot( this, info, row, ax[i], 0 );
++        row += limot[i].addLinearLimot( this, info,  ax[i], row);
+     }
+ }
+ 
+Index: ode/src/joints/piston.cpp
+===================================================================
+--- ode/src/joints/piston.cpp	(revision 1899)
++++ ode/src/joints/piston.cpp	(working copy)
+@@ -175,7 +175,7 @@
+ void 
+ dxJointPiston::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = 6;
++  info->max_m = 4 + limotP.countSureMaxRows() + limotR.countSureMaxRows();
+ }
+ 
+ 
+@@ -198,7 +198,8 @@
+     }
+ 
+     // powered Piston or at limits needs an extra constraint row
+-    if ( limotP.limit || limotP.fmax > 0 ) info->m++;
++    info->m += limotP.countRows();
++    info->nub += limotP.countUBRows();
+ 
+ 
+     // see if we're at a joint limit.
+@@ -213,7 +214,8 @@
+     }
+ 
+     // powered Piston or at limits needs an extra constraint row
+-    if ( limotR.limit || limotR.fmax > 0 ) info->m++;
++    info->m += limotR.countRows();
++    info->nub += limotR.countUBRows();
+ 
+ }
+ 
+@@ -406,7 +408,7 @@
+     int row = 4;
+     if (  node[1].body )
+     {
+-        row += limotP.addLimot ( this, info, 4, ax1, 0 );
++        row += limotP.addLinearLimot ( this, info,  ax1, 4 );
+     }
+     else if (flags & dJOINT_REVERSE )
+     {
+@@ -414,12 +416,12 @@
+         rAx1[0] = -ax1[0];
+         rAx1[1] = -ax1[1];
+         rAx1[2] = -ax1[2];
+-        row += limotP.addLimot ( this, info, 4, rAx1, 0 );
++        row += limotP.addLinearLimot ( this, info,  rAx1, 4 );
+     }
+     else
+-        row += limotP.addLimot ( this, info, 4, ax1, 0 );
++        row += limotP.addLinearLimot ( this, info, ax1, 4 );
+ 
+-    limotR.addLimot ( this, info, row, ax1, 1 );
++    limotR.addRotationalLimot ( this, info, ax1, row );
+ }
+ 
+ void dJointSetPistonAnchor ( dJointID j, dReal x, dReal y, dReal z )
+Index: ode/src/joints/plane2d.cpp
+===================================================================
+--- ode/src/joints/plane2d.cpp	(revision 1899)
++++ ode/src/joints/plane2d.cpp	(working copy)
+@@ -64,7 +64,10 @@
+ void 
+ dxJointPlane2D::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = 6;
++    info->max_m = 3 +
++      motor_x.countSureMaxRows() +
++      motor_y.countSureMaxRows() +
++      motor_angle.countSureMaxRows();
+ }
+ 
+ 
+@@ -74,20 +77,12 @@
+     info->nub = 3;
+     info->m = 3;
+ 
+-    if ( motor_x.fmax > 0 )
+-        row_motor_x = info->m++;
+-    else
+-        row_motor_x = 0;
+-
+-    if ( motor_y.fmax > 0 )
+-        row_motor_y = info->m++;
+-    else
+-        row_motor_y = 0;
+-
+-    if ( motor_angle.fmax > 0 )
+-        row_motor_angle = info->m++;
+-    else
+-        row_motor_angle = 0;
++    info->m += motor_x.countRows();
++    info->nub += motor_x.countUBRows();
++    info->m += motor_y.countRows();
++    info->nub += motor_y.countUBRows();
++    info->m += motor_angle.countRows();
++    info->nub += motor_angle.countUBRows();
+ }
+ 
+ 
+@@ -139,14 +134,10 @@
+ 
+     // if the slider is powered, or has joint limits, add in the extra row:
+ 
+-    if ( row_motor_x > 0 )
+-        motor_x.addLimot( this, info, row_motor_x, Midentity[0], 0 );
+-
+-    if ( row_motor_y > 0 )
+-        motor_y.addLimot( this, info, row_motor_y, Midentity[1], 0 );
+-
+-    if ( row_motor_angle > 0 )
+-        motor_angle.addLimot( this, info, row_motor_angle, Midentity[2], 1 );
++    int row = 3;
++    row += motor_x.addLinearLimot( this, info,  Midentity[0], row );
++    row += motor_y.addLinearLimot( this, info,  Midentity[1], row );
++    motor_angle.addRotationalLimot( this, info, Midentity[2], row );
+ }
+ 
+ 
+Index: ode/src/joints/plane2d.h
+===================================================================
+--- ode/src/joints/plane2d.h	(revision 1899)
++++ ode/src/joints/plane2d.h	(working copy)
+@@ -30,9 +30,9 @@
+ 
+ struct dxJointPlane2D : public dxJoint
+ {
+-    int                 row_motor_x;
+-    int                 row_motor_y;
+-    int                 row_motor_angle;
++    //int                 row_motor_x;
++    //int                 row_motor_y;
++    //int                 row_motor_angle;
+     dxJointLimitMotor   motor_x;
+     dxJointLimitMotor   motor_y;
+     dxJointLimitMotor   motor_angle;
+Index: ode/src/joints/pr.cpp
+===================================================================
+--- ode/src/joints/pr.cpp	(revision 1899)
++++ ode/src/joints/pr.cpp	(working copy)
+@@ -180,7 +180,9 @@
+ void 
+ dxJointPR::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = 6;
++  info->max_m = 4 + 
++    limotR.countSureMaxRows() +
++    limotP.countSureMaxRows();
+ }
+ 
+ 
+@@ -203,7 +205,8 @@
+     }
+ 
+     // powered needs an extra constraint row
+-    if ( limotP.limit || limotP.fmax > 0 ) info->m++;
++    info->m += limotP.countRows();
++    info->nub += limotP.countUBRows();
+ 
+ 
+     // see if we're at a joint limit.
+@@ -430,7 +433,7 @@
+     int row = 4;
+     if (  node[1].body || !(flags & dJOINT_REVERSE) )
+     {
+-        row += limotP.addLimot ( this, info, 4, axP, 0 );
++        row += limotP.addLinearLimot ( this, info, axP, 4 );
+     }
+     else
+     {
+@@ -438,10 +441,10 @@
+         rAxP[0] = -axP[0];
+         rAxP[1] = -axP[1];
+         rAxP[2] = -axP[2];
+-        row += limotP.addLimot ( this, info, 4, rAxP, 0 );
++        row += limotP.addLinearLimot ( this, info, rAxP, 4 );
+     }
+ 
+-    limotR.addLimot ( this, info, row, ax1, 1 );
++    limotR.addRotationalLimot ( this, info, ax1, row );
+ }
+ 
+ 
+Index: ode/src/joints/pu.cpp
+===================================================================
+--- ode/src/joints/pu.cpp	(revision 1899)
++++ ode/src/joints/pu.cpp	(working copy)
+@@ -209,7 +209,10 @@
+ void 
+ dxJointPU::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = 6;
++  info->max_m = 3 +
++    limotP.countSureMaxRows() +
++    limot1.countSureMaxRows() +
++    limot2.countSureMaxRows();
+ }
+ 
+ 
+@@ -232,7 +235,8 @@
+         limotP.testRotationalLimit( pos );  // N.B. The function is ill named
+     }
+ 
+-    if ( limotP.limit || limotP.fmax > 0 ) info->m++;
++    info->m+=limotP.countRows();
++    info->nub+=limotP.countUBRows();
+ 
+ 
+     bool limiting1 = ( limot1.lostop >= -M_PI || limot1.histop <= M_PI ) &&
+@@ -254,8 +258,13 @@
+             limot2.testRotationalLimit( angle2 );
+     }
+ 
+-    if ( limot1.limit || limot1.fmax > 0 ) info->m++;
+-    if ( limot2.limit || limot2.fmax > 0 ) info->m++;
++    //if ( limot1.limit || limot1.fmax > 0 ) info->m++;
++    //if ( limot2.limit || limot2.fmax > 0 ) info->m++;
++
++    info->m   += limot1.countRows();
++    info->nub += limot1.countUBRows();
++    info->m   += limot2.countRows();
++    info->nub += limot2.countUBRows();
+ }
+ 
+ 
+@@ -434,17 +443,17 @@
+     info->c[1] = k * dCalcVectorDot3( ax1, err );
+     info->c[2] = k * dCalcVectorDot3( q, err );
+ 
+-    int row = 3 + limot1.addLimot( this, info, 3, ax1, 1 );
+-    row += limot2.addLimot( this, info, row, ax2, 1 );
++    int row = 3 + limot1.addRotationalLimot( this, info,  ax1, 3 );
++    row += limot2.addRotationalLimot( this, info, ax2, row );
+ 
+     if (  node[1].body || !(flags & dJOINT_REVERSE) )
+-        limotP.addLimot( this, info, row, axP, 0 );
++        limotP.addLinearLimot( this, info, axP, row );
+     else
+     {
+         axP[0] = -axP[0];
+         axP[1] = -axP[1];
+         axP[2] = -axP[2];
+-        limotP.addLimot ( this, info, row, axP, 0 );
++        limotP.addLinearLimot ( this, info, axP, row );
+     }
+ }
+ 
+Index: ode/src/joints/slider.cpp
+===================================================================
+--- ode/src/joints/slider.cpp	(revision 1899)
++++ ode/src/joints/slider.cpp	(working copy)
+@@ -109,7 +109,7 @@
+ void 
+ dxJointSlider::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = 6;
++  info->max_m = 5 + limot.countSureMaxRows();
+ }
+ 
+ 
+@@ -117,12 +117,8 @@
+ dxJointSlider::getInfo1 ( dxJoint::Info1 *info )
+ {
+     info->nub = 5;
++    info->m = 5;
+ 
+-    // see if joint is powered
+-    if ( limot.fmax > 0 )
+-        info->m = 6; // powered slider needs an extra constraint row
+-    else info->m = 5;
+-
+     // see if we're at a joint limit.
+     limot.limit = 0;
+     if ( ( limot.lostop > -dInfinity || limot.histop < dInfinity ) &&
+@@ -130,18 +126,9 @@
+     {
+         // measure joint position
+         dReal pos = dJointGetSliderPosition ( this );
+-        if ( pos <= limot.lostop )
+-        {
+-            limot.limit = 1;
+-            limot.limit_err = pos - limot.lostop;
+-            info->m = 6;
+-        }
+-        else if ( pos >= limot.histop )
+-        {
+-            limot.limit = 2;
+-            limot.limit_err = pos - limot.histop;
+-            info->m = 6;
+-        }
++        limot.testRotationalLimit( pos );
++        info->m+=limot.countRows();
++        info->nub+=limot.countUBRows();
+     }
+ }
+ 
+@@ -224,7 +211,7 @@
+     }
+ 
+     // if the slider is powered, or has joint limits, add in the extra row
+-    limot.addLimot ( this, info, 5, ax1, 0 );
++    limot.addLinearLimot ( this, info, ax1, 5 );
+ }
+ 
+ 
+Index: ode/src/joints/universal.cpp
+===================================================================
+--- ode/src/joints/universal.cpp	(revision 1899)
++++ ode/src/joints/universal.cpp	(working copy)
+@@ -258,7 +258,9 @@
+ void 
+ dxJointUniversal::getSureMaxInfo( SureMaxInfo* info )
+ {
+-    info->max_m = 6;
++  info->max_m = 4 +
++    limot1.countSureMaxRows() +
++    limot2.countSureMaxRows();
+ }
+ 
+ 
+@@ -288,8 +290,8 @@
+             limot2.testRotationalLimit( angle2 );
+     }
+ 
+-    if ( limot1.limit || limot1.fmax > 0 ) info->m++;
+-    if ( limot2.limit || limot2.fmax > 0 ) info->m++;
++    info->m += limot1.countRows() + limot2.countRows();
++    info->nub += limot1.countUBRows() + limot2.countUBRows();
+ }
+ 
+ 
+@@ -355,10 +357,10 @@
+     info->c[3] = info->fps * info->erp * - k;
+ 
+     // if the first angle is powered, or has joint limits, add in the stuff
+-    int row = 4 + limot1.addLimot( this, info, 4, ax1, 1 );
++    int row = 4 + limot1.addRotationalLimot( this, info, ax1, 4 );
+ 
+     // if the second angle is powered, or has joint limits, add in more stuff
+-    limot2.addLimot( this, info, row, ax2, 1 );
++    limot2.addRotationalLimot( this, info, ax2, row );
+ }
+ 
+ 
+Index: ode/src/quickstep.cpp
+===================================================================
+--- ode/src/quickstep.cpp	(revision 1899)
++++ ode/src/quickstep.cpp	(working copy)
+@@ -676,7 +676,7 @@
+         for (dxJoint *const *_jcurr = _joint; _jcurr != _jend; _jcurr++) {	// jicurr=dest, _jcurr=src
+             dxJoint *j = *_jcurr;
+             j->getInfo1 (&jicurr->info);
+-            dIASSERT (jicurr->info.m >= 0 && jicurr->info.m <= 6 && jicurr->info.nub >= 0 && jicurr->info.nub <= jicurr->info.m);
++            dIASSERT (jicurr->info.m >= 0 && jicurr->info.m <= 18 && jicurr->info.nub >= 0 && jicurr->info.nub <= jicurr->info.m);
+             if (jicurr->info.m > 0) {
+                 jicurr->joint = j;
+                 jicurr++;
+@@ -980,7 +980,7 @@
+             dReal *vel = memarena->AllocateArray<dReal>((size_t)nb*6);
+ 
+             // check that the updated velocity obeys the constraint (this check needs unmodified J)
+-            dReal *velcurr = vel;
++            dReal *velcurr = lo_vel;
+             dxBody *bodycurr = body, *const bodyend = body + nb;
+             for (; bodycurr != bodyend; velcurr += 6, bodycurr++) {
+                 for (unsigned int j=0; j<3; j++) {
+Index: ode/src/step.cpp
+===================================================================
+--- ode/src/step.cpp	(revision 1899)
++++ ode/src/step.cpp	(working copy)
+@@ -302,7 +302,7 @@
+                     }
+                     dxJoint *j = *_jcurr++;
+                     j->getInfo1 (&jicurr->info);
+-                    dIASSERT (jicurr->info.m >= 0 && jicurr->info.m <= 6 && jicurr->info.nub >= 0 && jicurr->info.nub <= jicurr->info.m);
++                    dIASSERT (jicurr->info.m >= 0 && jicurr->info.m <= 18 && jicurr->info.nub >= 0 && jicurr->info.nub <= jicurr->info.m);
+                     if (jicurr->info.m > 0) {
+                         if (jicurr->info.nub == 0) { // A lcp info - a correct guess!!!
+                             jicurr->joint = j;
+@@ -355,7 +355,7 @@
+                     }
+                     dxJoint *j = *_jcurr++;
+                     j->getInfo1 (&jicurr->info);
+-                    dIASSERT (jicurr->info.m >= 0 && jicurr->info.m <= 6 && jicurr->info.nub >= 0 && jicurr->info.nub <= jicurr->info.m);
++                    dIASSERT (jicurr->info.m >= 0 && jicurr->info.m <= 18 && jicurr->info.nub >= 0 && jicurr->info.nub <= jicurr->info.m);
+                     if (jicurr->info.m > 0) {
+                         if (jicurr->info.nub == jicurr->info.m) { // An unbounded info - a correct guess!!!
+                             jicurr->joint = j;
