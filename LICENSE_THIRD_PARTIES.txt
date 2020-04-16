@@ -1,0 +1,3 @@
+The project uses the Eigen library which is also included in the repository in the folder eigen_332. See http://eigen.tuxfamily.org for Eigen's licensing information.
+
+The project uses Open Dynamics Engine which is also included in the repository in the folder ode-0.12. See ode.org for Open Dynamics Engine's licensing information.
